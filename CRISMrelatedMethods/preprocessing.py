@@ -2,7 +2,7 @@ import numpy as np
 import random
 from scipy.interpolate import interp1d
 from math import factorial,atan2, pi, degrees, isclose
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler,MinMaxScaler
 
 #===========================================================
 def getShiftNoised(sourceSpectra,maxprcn=60,initialDev=6):
@@ -29,16 +29,11 @@ def getContiNoised(aSpectra,targetWL=None,nMeans=1,noiseStd=0,returnNoise=False)
         return gNoise*aSpectra
 #===========================================================
 def savitzky_golay(y, window_size=11, order=2, deriv=0, rate=1):
-    try:
-        window_size = np.abs(np.int(window_size))
-        order = np.abs(np.int(order))
-#     except ValueError, msg: SAM
-    except ValueError:
-        raise ValueError("window_size and order have to be of type int")
-    if window_size % 2 != 1 or window_size < 1:
-        raise TypeError("window_size size must be a positive odd number")
-    if window_size < order + 2:
-        raise TypeError("window_size is too small for the polynomials order")
+    window_size,order=np.int32(window_size),np.int32(order)
+    if  window_size < 3:  window_size=3
+    if window_size % 2 == 0:  window_size+=1
+    if window_size < order + 2: window_size=order + 2
+        
     order_range = range(order+1)
     half_window = (window_size -1) // 2
     # precompute coefficients
@@ -73,11 +68,16 @@ def removeSpikes(spectra,stdRatio=0,windowSize=5,weighted=False):
     smSpectra=np.where(windowCv>cutoff,windowMean,spectra)
     return smSpectra
 
-def getSmoothedData(data,SGwindowSize=11, order=2, RSwindowSize=5, RSstdRatio=0):
-    SMdata=[]
+def getSmoothedData(data,SGwindowSize=11, SGorder=2, RSwindowSize=5, RSstdRatio=0, prep='smRS',mask=None):
+    if mask is None: mask=np.full(data.shape,True).ravel()
+    SMdata=np.ones(data.shape)
     for i in range(data.shape[0]):
-        SMdata.append(removeSpikes(savitzky_golay(data[i,:],window_size=SGwindowSize),windowSize=RSwindowSize,stdRatio=RSstdRatio) )
-    return np.array(SMdata)
+        if mask[i]: continue
+        if prep=='smRS': SMdata[i]=removeSpikes(savitzky_golay(data[i],window_size=SGwindowSize,order=SGorder),windowSize=RSwindowSize,stdRatio=RSstdRatio)
+        if prep=='sm': SMdata[i]=savitzky_golay(data[i],window_size=SGwindowSize,order=SGorder)
+        if prep=='RS': SMdata[i]=removeSpikes(data[i],windowSize=RSwindowSize,stdRatio=RSstdRatio)
+        if prep=='RSsm': SMdata[i]=savitzky_golay(removeSpikes(data[i],windowSize=RSwindowSize,stdRatio=RSstdRatio),window_size=SGwindowSize,order=SGorder)
+    return SMdata
 #===========================================================
 def angle(C, B=(0,0), A=(1,0), nintyDegree=False):
     Ax, Ay = A[0]-B[0], A[1]-B[1]
@@ -127,12 +127,14 @@ def getContinuumRemovedSpectra_CH(sourceSpectra,targetWL=None):
     if targetWL is None: targetWL=np.arange(sourceSpectra.shape[0])
     continuumRemoved=sourceSpectra/getUpperCH(sourceSpectra,targetWL)
     return continuumRemoved
-def getContinuumRemovedData(data,targetWL=None):
+def getContinuumRemovedData(data,targetWL=None,mask=None):
+    if mask is None: mask=np.full(data.shape,True).ravel()
     if targetWL is None: targetWL=np.arange(data[0].shape[0])
-    CRdata=[]
+    CRdata=np.ones(data.shape)
     for i in range(data.shape[0]):
-        CRdata.append(getContinuumRemovedSpectra_CH(data[i,:],targetWL))
-    return np.array(CRdata)
+        if mask[i]: continue
+        CRdata[i]=getContinuumRemovedSpectra_CH(data[i],targetWL)
+    return CRdata
 #===========================================================
 def getStandardScaledSpectra(spectra):
     targetSpectra=spectra.reshape(-1,1)
@@ -140,99 +142,130 @@ def getStandardScaledSpectra(spectra):
     targetSpectra=scaler.fit_transform(targetSpectra)
     targetSpectra=(targetSpectra.reshape(1,-1))[0]
     return targetSpectra
-def getStandardScaledData(data):
-    Ndata=[]
+def getStandardScaledData(data,mask=None):
+    if mask is None: mask=np.full(data.shape,True).ravel()
+    Ndata=np.ones(data.shape)
     for i in range(data.shape[0]):
-        Ndata.append(getStandardScaledSpectra(data[i,:]))
+        if mask[i]: continue
+        Ndata[i]=getStandardScaledSpectra(data[i])
     return np.array(Ndata)
 #==========================================================
-def getAbsorptionPositions(prepSpectra):
+def getAbsorptionPositions(prepSpectra,minimumDeepBands=3,areaCutOff=.01): #,weight=False
     maxV=np.max(prepSpectra)
+    totalArea=np.sum([maxV-p for p in prepSpectra])
     segments=[]
     segStarted=False
     for i in range(prepSpectra.shape[0]):
         if segStarted:
             if np.isclose(maxV,prepSpectra[i]):
-                thisSegment['end']=i-1
+                thisSegment['end']=i
                 thisSegment['min']=thisSegMin[0]
-                segments.append(thisSegment)
+                addNewSegment=True
+#                 if (thisSegment['end']-thisSegment['start'])<=minimumDeepBands:
+#                     addNewSegment=False
+                if (thisSegment['area']/totalArea)<areaCutOff:
+                    addNewSegment=False
+                if addNewSegment:
+                    segments.append(thisSegment)
                 if i<prepSpectra.shape[0]-1:
-                    thisSegment={'start':i+1}
-                    thisSegMin=(i+1,prepSpectra[i+1])
+                    thisSegment={'start':i,'area':(maxV-prepSpectra[i])}
+                    thisSegMin=(i,prepSpectra[i])
                 if i<prepSpectra.shape[0]-1 and np.isclose(maxV,prepSpectra[i+1]):
                     segStarted=False
             else:
+                thisSegment['area']+=(maxV-prepSpectra[i])
                 if thisSegMin[1]>prepSpectra[i]:
                     thisSegMin=(i,prepSpectra[i])
         else:
             if i<prepSpectra.shape[0]-1 and np.isclose(maxV,prepSpectra[i]) and maxV>prepSpectra[i+1] and not segStarted:
                 segStarted=True
-                thisSegment={'start':i+1}
-                thisSegMin=(i+1,prepSpectra[i+1])
-    return [(S['start']-1,S['min'],S['end']+1) for S in segments]
+                thisSegment={'start':i,'area':(maxV-prepSpectra[i])}
+                thisSegMin=(i,prepSpectra[i])
+    return [(S['start'],S['min'],S['end'], S['area']) for S in segments]
 
 def getbanddepth(iVal,mVal,jVal,iPos,mPos,jPos):
     return iVal - mVal + (jVal-iVal)*((mPos-iPos)/(jPos-iPos))
+def getbandarea(S,W,below=False):
+    intrp= np.array([S[0]+((S[-1]-S[0])*((W[i]-W[0])/(W[-1]-W[0]))) for i in range(len(W))])
+    return np.sum(intrp-S) if not below else np.sum(np.where(intrp>S,intrp-S,0))
 def getMAD(A):
     med=np.median(A)
     dev=A-med
     absdev=np.abs(dev)
     return np.median(absdev)
 
-def getDiversePositions(sourceIF,sourceWV,targetWV,positionsCount=300,minimumDeepsize=3):
+def getDiversePositions(sourceIF,sourceWV,targetWV,positionsCount=300,minimumDeepBands=3,feature='banddepth'): #,weight=False
     libSpectras=[]
     for m in range(len(sourceIF)):
         pixelInterPolFunc1=interp1d(sourceWV[m],sourceIF[m], kind='linear')
-        prepSpectra=getStandardScaledSpectra(getContinuumRemovedSpectra_CH(removeSpikes(savitzky_golay(pixelInterPolFunc1(targetWV)))))
+        prepSpectra=getStandardScaledSpectra(getContinuumRemovedSpectra_CH(removeSpikes(savitzky_golay(pixelInterPolFunc1(targetWV))))) #
         libSpectras.append(prepSpectra)
         
     D=[]
     for l in range(len(libSpectras)):
-        D.extend([A for A in getAbsorptionPositions(libSpectras[l]) if (A[2]-A[0])>minimumDeepsize])
+        D.extend(getAbsorptionPositions(libSpectras[l],minimumDeepBands=minimumDeepBands))
     
     diffList=[]
     for d in D:
         thisMdiffs=[]
         for k in range(len(libSpectras)):
-            thisMdiffs.append(getbanddepth(libSpectras[k][d[0]],libSpectras[k][d[1]],libSpectras[k][d[2]],d[0],d[1],d[2]))
+            if feature=='banddepth':
+                thisMdiffs.append(getbanddepth(libSpectras[k][d[0]],libSpectras[k][d[1]],libSpectras[k][d[2]],d[0],d[1],d[2]))
+            elif feature=='bandarea':
+                thisMdiffs.append(getbandarea(libSpectras[k][d[0]:d[2]],targetWV[d[0]:d[2]]))
+            elif feature=='bandareaBlw':
+                thisMdiffs.append(getbandarea(libSpectras[k][d[0]:d[2]],targetWV[d[0]:d[2]],below=True))
         thisMdiffs=np.array(thisMdiffs)
         thisrangeDiffScaled=(thisMdiffs-min(thisMdiffs))/(max(thisMdiffs)-min(thisMdiffs))
-        diffList.append([getMAD(thisrangeDiffScaled)/np.median(thisrangeDiffScaled),d[0],d[1],d[2]])
+        diffList.append([getMAD(thisrangeDiffScaled)/np.median(thisrangeDiffScaled),d[0],d[1],d[2],d[3]])
     diffList.sort(key= lambda x:x[0],reverse=True)
 
     deepsFinal={}
     removeDeep=[]
     for d in range(len(diffList)):
-        checkMinSize=False
-        if diffList[d][3]-diffList[d][1]<minimumDeepsize:
+        checkOverlap=False
+        for i in range(diffList[d][1]-3,diffList[d][1]+4):
+            for m in range(diffList[d][2]-2,diffList[d][2]+3):
+                for j in range(diffList[d][3]-3,diffList[d][3]+4):
+                    if deepsFinal.get((i,m,j)) is not None: 
+                        checkOverlap=True
+                        break
+        if checkOverlap:
             removeDeep.append(d)
-            checkMinSize=True
-        if not checkMinSize:
-            checkOverlap=False
-            for i in range(diffList[d][1]-3,diffList[d][1]+4):
-                for m in range(diffList[d][2]-2,diffList[d][2]+3):
-                    for j in range(diffList[d][3]-3,diffList[d][3]+4):
-                        if deepsFinal.get((i,m,j)) is not None: 
-                            checkOverlap=True
-                            break
-            if checkOverlap:
-                removeDeep.append(d)
-        if not checkMinSize and not checkOverlap:
+        else:
             deepsFinal[(diffList[d][1],diffList[d][2],diffList[d][3])]='dummy'
     removeDeep.reverse()
     for r in removeDeep:
         diffList.pop(r)
-    return [diffList[d][1:] for d in range(min(len(diffList),positionsCount))]
+        
+    return [diffList[d][1:-1] for d in range(min(len(diffList),positionsCount))]
 #==========================================================
-def getFeature(d,rPos,feature='banddepth'):
+def getFeature(d,targetWV,rPos,feature='banddepth'):
+    depth=np.array([np.max(d)-p for p in d])
+    totalArea=np.sum(depth)
+    maxDepth=np.max(depth)
     dd=[]
     for r in rPos:
-        if feature=='banddepth':
-            dd.append(  getbanddepth(d[r[0]],d[r[1]],d[r[2]],r[0],r[1],r[2])  )
+        if 'Blw' in feature:
+            thisarea=getbandarea(d[r[0]:r[2]],targetWV[r[0]:r[2]],below=True)
+            if feature=='bandareaBlw':  dd.append(  thisarea )
+            if feature=='areaBlwProportion': dd.append(  thisarea/totalArea )
+        elif 'area' in feature:
+            thisarea=getbandarea(d[r[0]:r[2]],targetWV[r[0]:r[2]])
+            if feature=='bandarea':  dd.append(  thisarea )
+            if feature=='areaProportion': dd.append(  thisarea/totalArea )
+        elif 'depth' in feature:
+            thisdepth=getbanddepth(d[r[0]],d[r[1]],d[r[2]],r[0],r[1],r[2])
+            if feature=='banddepth':  dd.append(  thisdepth )
+            if feature=='depthProportion': dd.append(  thisdepth/maxDepth )
     return np.array(dd)
-def getFeatureData(D,rPos,feature='banddepth'):
+def getFeatureData(D,targetWV,rPos,feature='banddepth'):
     D_r=[]
     for d in range(D.shape[0]):
-        D_r.append(getFeature(D[d],rPos,feature=feature))
+        D_r.append(getFeature(D[d],targetWV,rPos,feature=feature))
     return np.array(D_r)
 #==========================================================
+def getMinMaxScaledSpectra(spectra):
+    return (spectra-np.min(spectra))/(np.max(spectra)-np.min(spectra))
+def getMinMaxScaledData(D):
+    return np.array([getMinMaxScaledSpectra(d) for d in D])
