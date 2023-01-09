@@ -3,7 +3,7 @@ from CRISMrelatedMethods.dataRead import getVarInfo
 from scipy.interpolate import interp1d
 from sklearn.preprocessing import StandardScaler,MinMaxScaler
 #=============================================================================================
-def getPreprocessedData(wavelengths,imgdata,framedata,pipeline='cr_sm_CR_SS_FE',returnBandCroppedImage=False,LINES=None,LINE_SAMPLES=None):
+def getPreprocessedData(wavelengths,imgdata,framedata,pipeline='cr_sm_CR_SS_FE',returnBandCroppedImage=False,LINES=None,LINE_SAMPLES=None,WR='bandarea',FE='banddepth'):
     spectralWavelengthSet=getVarInfo('specifications.z','spectralWavelengthSet')
     spectralIF=getVarInfo('specifications.z','spectralIF')
     spectralWavelength=getVarInfo('specifications.z','spectralWavelength')
@@ -36,8 +36,8 @@ def getPreprocessedData(wavelengths,imgdata,framedata,pipeline='cr_sm_CR_SS_FE',
 
         # feature extraction
         if step=='FE':
-            P=getDiversePositions(spectralIF,spectralWavelength,spectralWavelengthSet,feature='banddepth')
-            imgdata=getFeatureData(imgdata,spectralWavelengthSet,P,feature='banddepth')
+            P=getDiversePositions(spectralIF,spectralWavelength,spectralWavelengthSet,feature=WR)
+            imgdata=getFeatureData(imgdata,spectralWavelengthSet,P,feature=FE)
 
             scaler = MinMaxScaler()
             scaler.fit(imgdata)
@@ -56,7 +56,7 @@ def getHexColorStr(aColor):
         hexStrL[1+(c+1)*2-len(hex(aColor[c])[2:]):1+(c+1)*2]=hex(aColor[c])[2:]
     return "".join(hexStrL)
 
-def generateDominatingMineralPlots(result,I_cr,maximumMineralCount=3):
+def generateDominatingMineralPlots(result,I_cr,imageFrame,maximumMineralCount=3):
     spectralWavelengthSet=getVarInfo('specifications.z','spectralWavelengthSet')
     mineralColours=getVarInfo('specifications.z','mineralColours')
     mineralNames=getVarInfo('specifications.z','mineralNames')
@@ -67,10 +67,10 @@ def generateDominatingMineralPlots(result,I_cr,maximumMineralCount=3):
 
     detectedMinerals={}
     for R in result:
-        if isinstance(result[R][0],np.int32): Pred=result[R].reshape(LINES,LINE_SAMPLES)
+        if isinstance(result[R][0],np.int32): Pred=result[R].reshape(I_cr.shape[0],I_cr.shape[1])
         else: Pred=np.array([np.argmax(p) if np.max(p)>.67 else len(mineralNames) for p in result[R]]).reshape(I_cr.shape[0],I_cr.shape[1]) #
 
-        imgPixels=(LINE_SAMPLES*LINES-np.sum(imageFrame))
+        imgPixels=(I_cr.shape[0]*I_cr.shape[1]-np.sum(imageFrame))
         detectedMinerals[R]={}
         for i in range(len(mineralNames)):
             thisDetected=np.where(Pred==i,True,False)&~imageFrame
