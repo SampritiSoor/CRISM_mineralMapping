@@ -20,7 +20,7 @@ def getContiNoised(aSpectra,targetWL=None,nMeans=1,noiseStd=0,returnNoise=False)
     gNoise=np.ones(aSpectra.shape)
     for i in range(nMeans):
         mean = targetWL[np.random.randint(aSpectra.shape[0])]
-        std = .65 #/nMeans
+        std = random.randint(2, 5)*.25
         gCurve = (1/(std * np.sqrt(2 * np.pi)) * np.exp( - (targetWL - mean)**2 / (2 * std**2)))
         gNoise+=gCurve  +noise
     if returnNoise:
@@ -69,7 +69,7 @@ def removeSpikes(spectra,stdRatio=0,windowSize=5,weighted=False):
     return smSpectra
 
 def getSmoothedData(data,SGwindowSize=11, SGorder=2, RSwindowSize=5, RSstdRatio=0, prep='smRS',mask=None):
-    if mask is None: mask=np.full(data.shape,True).ravel()
+    if mask is None: mask=np.full(data.shape,False).ravel()
     SMdata=np.ones(data.shape)
     for i in range(data.shape[0]):
         if mask[i]: continue
@@ -128,7 +128,7 @@ def getContinuumRemovedSpectra_CH(sourceSpectra,targetWL=None):
     continuumRemoved=sourceSpectra/getUpperCH(sourceSpectra,targetWL)
     return continuumRemoved
 def getContinuumRemovedData(data,targetWL=None,mask=None):
-    if mask is None: mask=np.full(data.shape,True).ravel()
+    if mask is None: mask=np.full(data.shape,False).ravel()
     if targetWL is None: targetWL=np.arange(data[0].shape[0])
     CRdata=np.ones(data.shape)
     for i in range(data.shape[0]):
@@ -143,7 +143,7 @@ def getStandardScaledSpectra(spectra):
     targetSpectra=(targetSpectra.reshape(1,-1))[0]
     return targetSpectra
 def getStandardScaledData(data,mask=None):
-    if mask is None: mask=np.full(data.shape,True).ravel()
+    if mask is None: mask=np.full(data.shape,False).ravel()
     Ndata=np.ones(data.shape)
     for i in range(data.shape[0]):
         if mask[i]: continue
@@ -194,7 +194,7 @@ def getMAD(A):
     absdev=np.abs(dev)
     return np.median(absdev)
 
-def getDiversePositions(sourceIF,sourceWV,targetWV,positionsCount=300,minimumDeepBands=3,feature='banddepth'): #,weight=False
+def getDiversePositions(sourceIF,sourceWV,targetWV,positionsCount=300,minimumDeepBands=3,feature='bandarea'):
     libSpectras=[]
     for m in range(len(sourceIF)):
         pixelInterPolFunc1=interp1d(sourceWV[m],sourceIF[m], kind='linear')
