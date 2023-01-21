@@ -1,3 +1,11 @@
+import numpy as np
+from CRISMrelatedMethods.dataRead import getVarInfo
+
+mineralGroupNames=getVarInfo('./specifications.z','mineralGroupNames')
+mineralGroupList=getVarInfo('./specifications.z','mineralGroupList')
+mineralGroupDict=getVarInfo('./specifications.z','mineralGroupDict')
+mineralIndexMap=getVarInfo('./specifications.z','mineralIndexMap')
+
 def getGroupPred(pred):        
     return np.array([mineralGroupDict[p] for p in pred])
 def getFfoldFitScore(trainedModel,testDataX,testDataY,f=5,groupResult=True,foldScore=False):
