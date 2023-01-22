@@ -20,7 +20,7 @@ def getContiNoised(aSpectra,targetWL=None,nMeans=1,noiseStd=0,returnNoise=False)
     gNoise=np.ones(aSpectra.shape)
     for i in range(nMeans):
         mean = targetWL[np.random.randint(aSpectra.shape[0])]
-        std = random.randint(2, 5)*.25
+        std = .75 #random.randint(2, 5)*.25
         gCurve = (1/(std * np.sqrt(2 * np.pi)) * np.exp( - (targetWL - mean)**2 / (2 * std**2)))
         gNoise+=gCurve  +noise
     if returnNoise:
