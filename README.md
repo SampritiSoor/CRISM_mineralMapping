@@ -23,7 +23,6 @@ P. Kumari, S. Soor, A. Shetty and S. G. Koolagudi, "A Fully-Automated Framework 
   number={},
   
   pages={13121-13137},
-  
   doi={10.1109/ACCESS.2023.3243061}
   
   }
